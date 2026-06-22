@@ -101,6 +101,7 @@
 
   <div class="bar">
     <label><input type="checkbox" id="contMode" /> Trò chuyện liên tục</label>
+    <label>Giọng: <select id="voiceSel" style="background:#14162c;color:var(--text);border:1px solid #33365e;border-radius:8px;padding:4px;max-width:200px;"></select></label>
     <span><span class="dot" id="brainDot"></span> bộ não</span>
     <a id="clearBtn">Xoá trí nhớ &amp; lịch sử</a>
   </div>
@@ -154,22 +155,43 @@ document.addEventListener("pointercancel", recenterEyes);
 document.addEventListener("mouseleave", recenterEyes);
 
 // --- Đọc to (TTS) bằng giọng tiếng Việt ---
-let viVoice = null;
-function pickVoice() {
-  const voices = speechSynthesis.getVoices();
-  viVoice = voices.find(v => /vi[-_]VN/i.test(v.lang) && /female|nu|hoai|my|linh/i.test(v.name))
-         || voices.find(v => /vi[-_]VN/i.test(v.lang))
-         || voices.find(v => /^vi/i.test(v.lang)) || null;
+const LS_VOICE = "min_voice";
+let allVoices = [], chosenVoice = null, warnedNoVi = false;
+function refreshVoices() {
+  allVoices = speechSynthesis.getVoices();
+  if (!allVoices.length) return;
+  const vi = allVoices.filter(v => /^vi/i.test(v.lang));
+  const list = vi.length ? vi : allVoices;
+  const sel = $("voiceSel");
+  sel.innerHTML = "";
+  for (const v of list) {
+    const o = document.createElement("option");
+    o.value = v.name;
+    o.textContent = v.name + (/^vi/i.test(v.lang) ? "" : " [" + v.lang + "]");
+    sel.appendChild(o);
+  }
+  const saved = localStorage.getItem(LS_VOICE);
+  const want = (saved && list.some(v => v.name === saved)) ? saved : (vi[0] && vi[0].name);
+  if (want) sel.value = want;
+  chosenVoice = allVoices.find(v => v.name === sel.value) || vi[0] || null;
+  if (!vi.length && !warnedNoVi) {
+    warnedNoVi = true;
+    addBubble("sys", "Trình duyệt chưa có giọng tiếng Việt. Min sẽ đọc bằng giọng khác (nghe sai). Cách sửa: cài giọng tiếng Việt cho máy (Windows: Settings → Time & Language → Speech → thêm Vietnamese), hoặc dùng Chrome (có giọng 'Google Tiếng Việt' khi online).");
+  }
 }
-pickVoice();
-speechSynthesis.onvoiceschanged = pickVoice;
+refreshVoices();
+speechSynthesis.onvoiceschanged = refreshVoices;
+$("voiceSel").onchange = () => {
+  chosenVoice = allVoices.find(v => v.name === $("voiceSel").value) || null;
+  if (chosenVoice) localStorage.setItem(LS_VOICE, chosenVoice.name);
+};
 
 function speak(text) {
   if (!text) return;
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = "vi-VN";
-  if (viVoice) u.voice = viVoice;
+  if (chosenVoice) { u.voice = chosenVoice; u.lang = chosenVoice.lang; }
+  else { u.lang = "vi-VN"; }
   u.rate = 1.02; u.pitch = 1.15;
   u.onstart = () => face.classList.add("speaking");
   u.onend = () => { face.classList.remove("speaking"); if ($("contMode").checked) startListen(); };
