@@ -99,6 +99,14 @@
     </form>
   </main>
 
+  <!-- Camera: chỉ bật đúng lúc chụp rồi tắt ngay -->
+  <video id="cam" playsinline muted style="display:none"></video>
+  <canvas id="canvas" style="display:none"></canvas>
+  <div id="camPreview" style="display:none;position:fixed;bottom:16px;right:16px;width:160px;border-radius:12px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.5);z-index:50;">
+    <video id="camView" playsinline muted style="width:100%;display:block"></video>
+    <div style="position:absolute;bottom:6px;left:0;right:0;text-align:center;color:#fff;font-size:12px;text-shadow:0 1px 3px #000;">📷 Min đang nhìn…</div>
+  </div>
+
   <div class="bar">
     <label><input type="checkbox" id="contMode" /> Trò chuyện liên tục</label>
     <span><span class="dot" id="brainDot"></span> bộ não</span>
@@ -194,21 +202,60 @@ function stopSpeaking() {
 }
 $("stopSpeak").onclick = stopSpeaking;
 
+// --- Camera: bật → chụp 1 ảnh → tắt ngay (riêng tư) ---
+async function captureOnce() {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } }, audio: false,
+  });
+  const cam = $("camView"), preview = $("camPreview");
+  try {
+    cam.srcObject = stream; preview.style.display = "block";
+    await cam.play();
+    await new Promise(r => setTimeout(r, 500));  // chờ camera lấy nét/sáng
+    const vw = cam.videoWidth || 1280, vh = cam.videoHeight || 720;
+    const scale = Math.min(1, 768 / Math.max(vw, vh));  // thu nhỏ để nhẹ token
+    const canvas = $("canvas"); canvas.width = Math.round(vw * scale); canvas.height = Math.round(vh * scale);
+    canvas.getContext("2d").drawImage(cam, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.7).split(",")[1];
+  } finally {
+    stream.getTracks().forEach(t => t.stop());
+    preview.style.display = "none"; cam.srcObject = null;
+  }
+}
+
 // --- Gửi lên bộ não ---
-async function send(text) {
+function send(text) {
   text = (text || "").trim();
   if (!text) return;
   addBubble("user", text);
   history.push({ role: "user", content: text }); save();
   const thinking = addBubble("min", "…");
+  deliver(text, null, thinking);
+}
+
+async function deliver(text, imageB64, thinking) {
   try {
     const res = await fetch("/api/chat", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, history: history.slice(-48), memories }),
+      body: JSON.stringify({ text, image: imageB64, history: history.slice(-48), memories }),
     });
     const data = await res.json();
     $("brainDot").classList.toggle("on", res.ok);
     if (!res.ok) { thinking.textContent = "Lỗi: " + (data.error || res.status); return; }
+
+    // Min muốn nhìn nhưng chưa có ảnh -> chụp rồi gửi lại (1 lần).
+    if (data.need_image && !imageB64) {
+      thinking.textContent = "📷 Min đang nhìn…";
+      let frame;
+      try { frame = await captureOnce(); }
+      catch (e) {
+        thinking.textContent = "Mình chưa mở được camera (" + e.message + ").";
+        speak("Mình chưa mở được camera, cậu kiểm tra quyền truy cập nhé.");
+        return;
+      }
+      return deliver(text, frame, thinking);
+    }
+
     thinking.textContent = data.reply || "(Min không trả lời)";
     if (data.tools && data.tools.length) {
       const t = document.createElement("div");

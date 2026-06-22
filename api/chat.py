@@ -57,6 +57,17 @@ TIN TỨC & THỜI TIẾT:
 - Hỏi thời tiết thì dùng `get_weather`. Hỏi tin tức / đọc báo thì dùng `get_news`. \
 TUYỆT ĐỐI không bịa thông tin thời sự/thời tiết — luôn gọi tool để lấy dữ liệu thật.
 
+NHÌN (camera):
+- Bạn CÓ THỂ nhìn qua camera của thiết bị bằng tool `look` (chụp một ảnh để thấy thực tế).
+- Hãy TỰ SUY NGHĨ xem có cần nhìn không, ĐỪNG chờ đúng từ khoá. Nguyên tắc: nếu câu trả lời \
+phụ thuộc vào thứ đang ở trước mặt cậu trong đời thực (vật cậu đang cầm/chỉ vào, khung cảnh \
+xung quanh, màu sắc, chữ trên giấy, biểu cảm khuôn mặt, có bao nhiêu thứ gì đó...) mà bạn \
+KHÔNG THỂ biết chỉ qua lời nói, thì hãy gọi `look` rồi dựa vào ảnh để trả lời. Còn câu hỏi \
+chung chung, kiến thức, tâm sự... thì không cần nhìn.
+- Khi không chắc cậu đang nói về vật nào, cứ `look` để xem cho chắc rồi hẵng trả lời — \
+đừng đoán mò khi việc nhìn sẽ giúp trả lời đúng.
+- Nếu trong tin nhắn ĐÃ kèm sẵn một ảnh, cứ trả lời trực tiếp dựa vào ảnh đó, không gọi `look` nữa.
+
 Hãy luôn đáng yêu, gần gũi, và là chính Min.
 """
 
@@ -102,6 +113,15 @@ TOOLS = [
     _tool("forget", "Quên những điều đã nhớ khớp với một từ khoá (khi cậu bảo quên).",
           {"about": {"type": "string", "description": "Từ khoá của điều cần quên."}}, ["about"]),
 ]
+
+# Tool NHÌN — chỉ thêm khi tin nhắn CHƯA kèm ảnh. Camera nằm ở client (trình duyệt),
+# nên khi model gọi `look`, server dừng lại và báo client chụp ảnh rồi gửi lại.
+LOOK_TOOL = _tool(
+    "look",
+    "Mở camera của thiết bị để NHÌN khi cậu hỏi về thứ trước mặt / đang cầm / xung quanh. "
+    "Gọi khi cần thấy mới trả lời chính xác được.",
+    {},
+)
 
 
 def _news(topic="", n=6):
@@ -185,11 +205,16 @@ def _run_tool(name, args, memories):
     return f"Unknown tool: {name}", memories
 
 
-def run_brain(user_text, history, memories):
-    """Chạy một lượt. Trả về (reply_text, memories_mới, tools_đã_dùng)."""
+def run_brain(user_text, history, memories, image_b64=None):
+    """Chạy một lượt.
+
+    Trả về dict:
+      {"reply": str, "memories": [...], "tools": [...], "need_image": bool}
+    need_image=True nghĩa là model muốn NHÌN nhưng chưa có ảnh -> client chụp rồi gửi lại.
+    """
     if not ANTHROPIC_API_KEY:
-        return ("Mình chưa được cấu hình khoá Claude. Cậu kiểm tra biến môi trường "
-                "ANTHROPIC_API_KEY trên Vercel nhé.", memories, [])
+        return {"reply": "Mình chưa được cấu hình khoá Claude. Cậu kiểm tra biến môi trường "
+                "ANTHROPIC_API_KEY trên Vercel nhé.", "memories": memories, "tools": [], "need_image": False}
 
     memories = list(memories or [])
     _auto_capture(user_text, memories)
@@ -203,13 +228,24 @@ def run_brain(user_text, history, memories):
         content = h.get("content", "")
         if role in ("user", "assistant") and content:
             messages.append({"role": role, "content": content})
-    messages.append({"role": "user", "content": user_text})
+
+    # Đã có ảnh -> đính kèm vào tin nhắn người dùng (model nhìn trực tiếp), bỏ tool look.
+    # Chưa có ảnh -> cho thêm tool look để model tự yêu cầu nhìn khi cần.
+    if image_b64:
+        tools = TOOLS
+        messages.append({"role": "user", "content": [
+            {"type": "text", "text": user_text},
+            {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": image_b64}},
+        ]})
+    else:
+        tools = TOOLS + [LOOK_TOOL]
+        messages.append({"role": "user", "content": user_text})
 
     final_text = ""
     tools_used = []
     for _ in range(6):  # tối đa vài vòng tool, tránh lặp vô hạn
         resp = client.messages.create(
-            model=LLM_MODEL, system=system, messages=messages, tools=TOOLS, max_tokens=1024,
+            model=LLM_MODEL, system=system, messages=messages, tools=tools, max_tokens=1024,
         )
         for block in resp.content:
             if block.type == "text":
@@ -217,6 +253,10 @@ def run_brain(user_text, history, memories):
 
         if resp.stop_reason != "tool_use":
             break
+
+        # Model muốn nhìn nhưng chưa có ảnh -> nhờ client chụp rồi gửi lại.
+        if any(b.type == "tool_use" and b.name == "look" for b in resp.content):
+            return {"reply": "", "memories": memories, "tools": tools_used + ["look"], "need_image": True}
 
         # Lưu nguyên lượt assistant (gồm cả tool_use) rồi trả tool_result.
         messages.append({"role": "assistant", "content": resp.content})
@@ -230,7 +270,7 @@ def run_brain(user_text, history, memories):
                 })
         messages.append({"role": "user", "content": tool_results})
 
-    return final_text.strip(), memories, tools_used
+    return {"reply": final_text.strip(), "memories": memories, "tools": tools_used, "need_image": False}
 
 
 def _send_json(self, status, payload):
@@ -256,9 +296,10 @@ class handler(BaseHTTPRequestHandler):
             if not user_text:
                 _send_json(self, 400, {"error": "Thiếu 'text'."})
                 return
-            reply, memories, tools_used = run_brain(
+            out = run_brain(
                 user_text, data.get("history", []), data.get("memories", []),
+                image_b64=(data.get("image") or None),
             )
-            _send_json(self, 200, {"reply": reply, "memories": memories, "tools": tools_used})
+            _send_json(self, 200, out)
         except Exception as err:  # noqa: BLE001
             _send_json(self, 500, {"error": str(err)})

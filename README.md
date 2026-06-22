@@ -78,3 +78,6 @@ vercel dev               # mở http://localhost:3000
 - **Bỏ** Whisper + edge-tts (giọng nói chuyển sang trình duyệt).
 - **Giữ**: persona Min, `remember`/`forget`, `get_weather`, `get_news`, tự bắt thông
   tin cá nhân (`auto_capture`), nhớ ngữ cảnh hội thoại.
+- **NHÌN (vision)**: hỏi "đây là cái gì / mình đang cầm gì" → Min gọi tool `look` →
+  trình duyệt bật camera, chụp 1 ảnh, **tắt camera ngay**, gửi ảnh cho Claude trả lời.
+  Camera dùng `getUserMedia` (cần HTTPS hoặc localhost + cho phép quyền).
