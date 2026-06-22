@@ -101,7 +101,6 @@
 
   <div class="bar">
     <label><input type="checkbox" id="contMode" /> Trò chuyện liên tục</label>
-    <label>Giọng: <select id="voiceSel" style="background:#14162c;color:var(--text);border:1px solid #33365e;border-radius:8px;padding:4px;max-width:200px;"></select></label>
     <span><span class="dot" id="brainDot"></span> bộ não</span>
     <a id="clearBtn">Xoá trí nhớ &amp; lịch sử</a>
   </div>
@@ -154,50 +153,46 @@ document.addEventListener("pointerup", (e) => { if (e.pointerType === "touch") s
 document.addEventListener("pointercancel", recenterEyes);
 document.addEventListener("mouseleave", recenterEyes);
 
-// --- Đọc to (TTS) bằng giọng tiếng Việt ---
-const LS_VOICE = "min_voice";
-let allVoices = [], chosenVoice = null, warnedNoVi = false;
-function refreshVoices() {
-  allVoices = speechSynthesis.getVoices();
-  if (!allVoices.length) return;
-  const vi = allVoices.filter(v => /^vi/i.test(v.lang));
-  const list = vi.length ? vi : allVoices;
-  const sel = $("voiceSel");
-  sel.innerHTML = "";
-  for (const v of list) {
-    const o = document.createElement("option");
-    o.value = v.name;
-    o.textContent = v.name + (/^vi/i.test(v.lang) ? "" : " [" + v.lang + "]");
-    sel.appendChild(o);
-  }
-  const saved = localStorage.getItem(LS_VOICE);
-  const want = (saved && list.some(v => v.name === saved)) ? saved : (vi[0] && vi[0].name);
-  if (want) sel.value = want;
-  chosenVoice = allVoices.find(v => v.name === sel.value) || vi[0] || null;
-  if (!vi.length && !warnedNoVi) {
-    warnedNoVi = true;
-    addBubble("sys", "Trình duyệt chưa có giọng tiếng Việt. Min sẽ đọc bằng giọng khác (nghe sai). Cách sửa: cài giọng tiếng Việt cho máy (Windows: Settings → Time & Language → Speech → thêm Vietnamese), hoặc dùng Chrome (có giọng 'Google Tiếng Việt' khi online).");
-  }
-}
-refreshVoices();
-speechSynthesis.onvoiceschanged = refreshVoices;
-$("voiceSel").onchange = () => {
-  chosenVoice = allVoices.find(v => v.name === $("voiceSel").value) || null;
-  if (chosenVoice) localStorage.setItem(LS_VOICE, chosenVoice.name);
-};
+// --- Đọc to (TTS): server sinh giọng tiếng Việt (edge-tts), KHÔNG phụ thuộc trình duyệt ---
+let currentAudio = null;
+function onSpeakStart() { face.classList.add("speaking"); }
+function onSpeakEnd() { face.classList.remove("speaking"); if ($("contMode").checked) startListen(); }
 
-function speak(text) {
-  if (!text) return;
+function browserSpeak(text) {  // dự phòng nếu /api/tts lỗi (cần máy có giọng vi)
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
-  if (chosenVoice) { u.voice = chosenVoice; u.lang = chosenVoice.lang; }
-  else { u.lang = "vi-VN"; }
-  u.rate = 1.02; u.pitch = 1.15;
-  u.onstart = () => face.classList.add("speaking");
-  u.onend = () => { face.classList.remove("speaking"); if ($("contMode").checked) startListen(); };
+  const vi = speechSynthesis.getVoices().find(v => /^vi/i.test(v.lang));
+  if (vi) u.voice = vi;
+  u.lang = "vi-VN"; u.rate = 1.02; u.pitch = 1.12;
+  u.onstart = onSpeakStart; u.onend = onSpeakEnd;
   speechSynthesis.speak(u);
 }
-$("stopSpeak").onclick = () => { speechSynthesis.cancel(); face.classList.remove("speaking"); };
+
+async function speak(text) {
+  if (!text) return;
+  stopSpeaking();
+  try {
+    const res = await fetch("/api/tts", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok || !(res.headers.get("content-type") || "").includes("audio")) throw new Error("tts " + res.status);
+    const url = URL.createObjectURL(await res.blob());
+    currentAudio = new Audio(url);
+    currentAudio.onplay = onSpeakStart;
+    currentAudio.onended = () => { URL.revokeObjectURL(url); currentAudio = null; onSpeakEnd(); };
+    await currentAudio.play();
+  } catch (e) {
+    browserSpeak(text);  // không sinh được trên server -> thử giọng trình duyệt
+  }
+}
+
+function stopSpeaking() {
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  speechSynthesis.cancel();
+  face.classList.remove("speaking");
+}
+$("stopSpeak").onclick = stopSpeaking;
 
 // --- Gửi lên bộ não ---
 async function send(text) {

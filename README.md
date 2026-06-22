@@ -7,21 +7,25 @@ lâu dài, thời tiết và tin tức.
 ## Kiến trúc
 
 ```
-Trình duyệt (Web Speech API: nghe + đọc tiếng Việt)
-      │  POST /api/chat  { text, history, memories }
-      ▼
-Vercel Serverless Function  api/chat.py  (vòng lặp tool-use Claude)
-      │  Anthropic SDK
-      ▼
-Anthropic API  ──►  Claude
+Trình duyệt
+  • NGHE: Web Speech API (SpeechRecognition, vi-VN)
+  • ĐỌC: phát MP3 nhận từ /api/tts (KHÔNG phụ thuộc giọng cài trong máy)
+      │
+      ├── POST /api/chat  { text, history, memories }
+      │        ▼  Vercel Function api/chat.py  ──(Anthropic SDK)──►  Claude
+      │
+      └── POST /api/tts   { text }
+               ▼  Vercel Function api/tts.py   ──(edge-tts)──►  MP3 giọng vi-VN
 ```
 
 Khác bản desktop (dùng 9Router qua Tailscale), bản web gọi **thẳng Anthropic API**
 bằng API key — không cần tunnel, không phụ thuộc máy công ty.
 
-- **Giọng nói chạy 100% trong trình duyệt** (Web Speech API). Không tốn server, không
-  cần Whisper/edge-tts. Dùng **Chrome** (máy tính hoặc Android) để nói được; Safari/iOS
-  hỗ trợ hạn chế — vẫn gõ chữ được.
+- **NGHE**: Web Speech API (`SpeechRecognition`) chạy trong trình duyệt — dùng **Chrome**
+  (máy tính/Android) để nói được; Safari/iOS hỗ trợ hạn chế (vẫn gõ chữ được).
+- **ĐỌC**: server sinh giọng nữ tiếng Việt bằng **edge-tts** (`vi-VN-HoaiMyNeural`, miễn
+  phí, không cần key) rồi trả MP3 cho trình duyệt phát. Nhờ vậy giọng luôn đúng tiếng Việt,
+  KHÔNG phụ thuộc giọng cài trong máy. Nếu `/api/tts` lỗi, tự lùi về giọng trình duyệt.
 - **Trí nhớ + lịch sử lưu ở trình duyệt** (`localStorage`) và gửi kèm mỗi request, nên
   function hoàn toàn *stateless* (đúng kiểu serverless, không cần database). Trí nhớ
   gắn với **trình duyệt/thiết bị** đó.
