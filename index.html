@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Min — Trợ lý giọng nói</title>
+<style>
+  :root {
+    --bg: #0f1020; --panel: #1a1c33; --accent: #7c5cff; --accent2: #4cc9f0;
+    --text: #eef0ff; --muted: #9aa0c0; --user: #2a2d52; --min: #21304a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(1200px 600px at 50% -10%, #20224a 0%, var(--bg) 55%);
+    color: var(--text); min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center;
+  }
+  header { text-align: center; padding: 28px 16px 8px; }
+  header h1 { margin: 0; font-size: 28px; letter-spacing: .5px; }
+  header p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+  .face {
+    width: 84px; height: 84px; margin: 14px auto 0; border-radius: 24px;
+    background: linear-gradient(145deg, var(--accent), var(--accent2));
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    box-shadow: 0 8px 30px rgba(124,92,255,.4); transition: transform .2s;
+  }
+  .face .eye { width: 16px; height: 26px; background: #0b1020; border-radius: 8px; transition: height .15s; }
+  .face.speaking { animation: bob 1s ease-in-out infinite; }
+  .face.listening .eye { height: 10px; }
+  @keyframes bob { 50% { transform: translateY(-5px); } }
+  main {
+    width: 100%; max-width: 720px; flex: 1; display: flex; flex-direction: column;
+    padding: 16px; gap: 12px;
+  }
+  #chat {
+    flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
+    padding: 12px; background: var(--panel); border-radius: 16px; min-height: 280px;
+  }
+  .msg { padding: 10px 14px; border-radius: 14px; max-width: 82%; line-height: 1.45; white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: var(--user); border-bottom-right-radius: 4px; }
+  .msg.min  { align-self: flex-start; background: var(--min); border-bottom-left-radius: 4px; }
+  .msg.sys  { align-self: center; background: transparent; color: var(--muted); font-size: 13px; }
+  .tools { font-size: 12px; color: var(--accent2); margin-top: 4px; }
+  .controls { display: flex; gap: 10px; align-items: center; }
+  #talk {
+    flex: 1; border: none; border-radius: 14px; padding: 16px; font-size: 16px;
+    color: #fff; cursor: pointer; background: linear-gradient(135deg, var(--accent), var(--accent2));
+    transition: transform .1s, opacity .2s;
+  }
+  #talk:active { transform: scale(.98); }
+  #talk.rec { background: linear-gradient(135deg, #ff4d6d, #ff9e6d); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 10px rgba(255,77,109,.18); } }
+  .iconbtn {
+    border: 1px solid #33365e; background: var(--panel); color: var(--text);
+    border-radius: 12px; padding: 14px; cursor: pointer; font-size: 16px;
+  }
+  form.textrow { display: flex; gap: 8px; }
+  form.textrow input {
+    flex: 1; border-radius: 12px; border: 1px solid #33365e; background: #14162c;
+    color: var(--text); padding: 12px 14px; font-size: 15px;
+  }
+  form.textrow button {
+    border: none; border-radius: 12px; background: var(--accent); color: #fff;
+    padding: 0 18px; cursor: pointer; font-size: 15px;
+  }
+  .bar { display: flex; gap: 14px; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 13px; padding-bottom: 18px; flex-wrap: wrap; }
+  .bar label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+  .bar a { color: var(--accent2); cursor: pointer; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #555; display: inline-block; }
+  .dot.on { background: #36d399; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="face" id="face"><div class="eye"></div><div class="eye"></div></div>
+    <h1>Min</h1>
+    <p>Người bạn AI nói tiếng Việt của cậu</p>
+  </header>
+
+  <main>
+    <div id="chat">
+      <div class="msg sys">Bấm nút micro và nói với Min, hoặc gõ chữ ở dưới.</div>
+    </div>
+
+    <div class="controls">
+      <button id="talk">🎤 Nhấn để nói</button>
+      <button class="iconbtn" id="stopSpeak" title="Min im lặng">🔇</button>
+    </div>
+
+    <form class="textrow" id="textForm">
+      <input id="textInput" placeholder="…hoặc gõ tin nhắn cho Min" autocomplete="off" />
+      <button type="submit">Gửi</button>
+    </form>
+  </main>
+
+  <div class="bar">
+    <label><input type="checkbox" id="contMode" /> Trò chuyện liên tục</label>
+    <span><span class="dot" id="brainDot"></span> bộ não</span>
+    <a id="clearBtn">Xoá trí nhớ &amp; lịch sử</a>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const chat = $("chat"), face = $("face"), talk = $("talk");
+
+// --- Bộ nhớ phía client (gửi kèm mỗi request) ---
+const LS_HIST = "min_history", LS_MEM = "min_memories";
+let history = JSON.parse(localStorage.getItem(LS_HIST) || "[]");
+let memories = JSON.parse(localStorage.getItem(LS_MEM) || "[]");
+function save() {
+  localStorage.setItem(LS_HIST, JSON.stringify(history.slice(-48)));
+  localStorage.setItem(LS_MEM, JSON.stringify(memories));
+}
+
+// Khôi phục hội thoại cũ lên màn hình
+for (const m of history) addBubble(m.role === "user" ? "user" : "min", m.content, false);
+
+function addBubble(who, text, persistScroll = true) {
+  const div = document.createElement("div");
+  div.className = "msg " + who;
+  div.textContent = text;
+  chat.appendChild(div);
+  if (persistScroll) chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+
+// --- Đọc to (TTS) bằng giọng tiếng Việt ---
+let viVoice = null;
+function pickVoice() {
+  const voices = speechSynthesis.getVoices();
+  viVoice = voices.find(v => /vi[-_]VN/i.test(v.lang) && /female|nu|hoai|my|linh/i.test(v.name))
+         || voices.find(v => /vi[-_]VN/i.test(v.lang))
+         || voices.find(v => /^vi/i.test(v.lang)) || null;
+}
+pickVoice();
+speechSynthesis.onvoiceschanged = pickVoice;
+
+function speak(text) {
+  if (!text) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "vi-VN";
+  if (viVoice) u.voice = viVoice;
+  u.rate = 1.02; u.pitch = 1.15;
+  u.onstart = () => face.classList.add("speaking");
+  u.onend = () => { face.classList.remove("speaking"); if ($("contMode").checked) startListen(); };
+  speechSynthesis.speak(u);
+}
+$("stopSpeak").onclick = () => { speechSynthesis.cancel(); face.classList.remove("speaking"); };
+
+// --- Gửi lên bộ não ---
+async function send(text) {
+  text = (text || "").trim();
+  if (!text) return;
+  addBubble("user", text);
+  history.push({ role: "user", content: text }); save();
+  const thinking = addBubble("min", "…");
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, history: history.slice(-48), memories }),
+    });
+    const data = await res.json();
+    $("brainDot").classList.toggle("on", res.ok);
+    if (!res.ok) { thinking.textContent = "Lỗi: " + (data.error || res.status); return; }
+    thinking.textContent = data.reply || "(Min không trả lời)";
+    if (data.tools && data.tools.length) {
+      const t = document.createElement("div");
+      t.className = "tools"; t.textContent = "đã dùng: " + data.tools.join(", ");
+      thinking.appendChild(t);
+    }
+    history.push({ role: "assistant", content: data.reply || "" });
+    if (Array.isArray(data.memories)) memories = data.memories;
+    save();
+    speak(data.reply);
+  } catch (e) {
+    $("brainDot").classList.remove("on");
+    thinking.textContent = "Không kết nối được bộ não: " + e.message;
+  }
+}
+
+// --- Nghe (STT) bằng Web Speech API ---
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, listening = false;
+if (SR) {
+  rec = new SR();
+  rec.lang = "vi-VN"; rec.interimResults = false; rec.maxAlternatives = 1;
+  rec.onresult = (e) => { const t = e.results[0][0].transcript; if (t) send(t); };
+  rec.onend = () => { listening = false; talk.classList.remove("rec"); face.classList.remove("listening"); talk.textContent = "🎤 Nhấn để nói"; };
+  rec.onerror = (e) => { if (e.error !== "no-speech") addBubble("sys", "Lỗi micro: " + e.error); };
+} else {
+  talk.disabled = true; talk.textContent = "Trình duyệt không hỗ trợ giọng nói";
+  addBubble("sys", "Dùng Chrome trên máy tính/Android để nói được. Tạm thời cậu gõ chữ nhé.");
+}
+function startListen() {
+  if (!rec || listening) return;
+  speechSynthesis.cancel();
+  try { rec.start(); listening = true; talk.classList.add("rec"); face.classList.add("listening"); talk.textContent = "⏺ Đang nghe… (bấm để dừng)"; }
+  catch (_) {}
+}
+talk.onclick = () => { listening ? rec.stop() : startListen(); };
+
+$("textForm").onsubmit = (e) => { e.preventDefault(); const v = $("textInput").value; $("textInput").value = ""; send(v); };
+$("clearBtn").onclick = () => {
+  if (!confirm("Xoá toàn bộ trí nhớ và lịch sử trò chuyện của Min?")) return;
+  history = []; memories = []; save();
+  chat.innerHTML = ""; addBubble("sys", "Đã xoá. Min bắt đầu lại từ đầu nhé.");
+};
+</script>
+</body>
+</html>
