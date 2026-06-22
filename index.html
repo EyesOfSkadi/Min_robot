@@ -25,7 +25,11 @@
     display: flex; align-items: center; justify-content: center; gap: 12px;
     box-shadow: 0 8px 30px rgba(124,92,255,.4); transition: transform .2s;
   }
-  .face .eye { width: 16px; height: 26px; background: #0b1020; border-radius: 8px; transition: height .15s; }
+  .face .eye {
+    width: 16px; height: 26px; background: #0b1020; border-radius: 8px;
+    transform: translate(var(--ex, 0px), var(--ey, 0px));
+    transition: height .15s, transform .09s ease-out;
+  }
   .face.speaking { animation: bob 1s ease-in-out infinite; }
   .face.listening .eye { height: 10px; }
   @keyframes bob { 50% { transform: translateY(-5px); } }
@@ -125,6 +129,29 @@ function addBubble(who, text, persistScroll = true) {
   if (persistScroll) chat.scrollTop = chat.scrollHeight;
   return div;
 }
+
+// --- Mắt Min nhìn theo ngón tay / con trỏ ---
+const eyes = face.querySelectorAll(".eye");
+let eyeReset = null;
+function lookAt(px, py) {
+  const r = face.getBoundingClientRect();
+  const dx = px - (r.left + r.width / 2);
+  const dy = py - (r.top + r.height / 2);
+  const ex = Math.max(-1, Math.min(1, dx / 140)) * 9;   // lệch ngang tối đa 9px
+  const ey = Math.max(-1, Math.min(1, dy / 140)) * 7;   // lệch dọc tối đa 7px
+  eyes.forEach(e => { e.style.setProperty("--ex", ex.toFixed(1) + "px"); e.style.setProperty("--ey", ey.toFixed(1) + "px"); });
+}
+function recenterEyes() {
+  eyes.forEach(e => { e.style.setProperty("--ex", "0px"); e.style.setProperty("--ey", "0px"); });
+}
+// pointermove bao cả chuột (desktop) lẫn ngón tay đang chạm (mobile)
+document.addEventListener("pointermove", (e) => {
+  lookAt(e.clientX, e.clientY);
+  if (e.pointerType === "touch") { clearTimeout(eyeReset); eyeReset = setTimeout(recenterEyes, 1500); }
+});
+document.addEventListener("pointerup", (e) => { if (e.pointerType === "touch") setTimeout(recenterEyes, 600); });
+document.addEventListener("pointercancel", recenterEyes);
+document.addEventListener("mouseleave", recenterEyes);
 
 // --- Đọc to (TTS) bằng giọng tiếng Việt ---
 let viVoice = null;
