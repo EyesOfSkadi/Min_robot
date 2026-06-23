@@ -23,16 +23,26 @@
     width: 84px; height: 84px; margin: 14px auto 0; border-radius: 24px;
     background: linear-gradient(145deg, var(--accent), var(--accent2));
     display: flex; align-items: center; justify-content: center; gap: 12px;
-    box-shadow: 0 8px 30px rgba(124,92,255,.4); transition: transform .2s;
+    box-shadow: 0 8px 30px rgba(124,92,255,.4);
+    transition: transform .2s, background .5s ease, width .3s, height .3s, gap .3s;
   }
   .face .eye {
     width: 16px; height: 26px; background: #0b1020; border-radius: 8px;
     transform: translate(var(--ex, 0px), var(--ey, 0px));
-    transition: height .15s, transform .09s ease-out;
+    transition: height .12s, width .2s, transform .12s ease-out;
   }
   .face.speaking { animation: bob 1s ease-in-out infinite; }
   .face.listening .eye { height: 10px; }
+  .face.blink .eye { height: 4px !important; }
   @keyframes bob { 50% { transform: translateY(-5px); } }
+
+  /* Chế độ tập trung: ẩn khung chat, chỉ còn khuôn mặt Min to ở giữa */
+  body.focus header { padding-top: 4vh; }
+  body.focus header p, body.focus #chat, body.focus #textForm { display: none; }
+  body.focus main { justify-content: flex-end; }
+  body.focus .face { width: 220px; height: 220px; border-radius: 56px; gap: 34px; margin-top: 8vh; }
+  body.focus .face .eye { width: 44px; height: 70px; border-radius: 22px; }
+  body.focus .face.listening .eye { height: 28px; }
   main {
     width: 100%; max-width: 720px; flex: 1; display: flex; flex-direction: column;
     padding: 16px; gap: 12px;
@@ -108,6 +118,7 @@
   </div>
 
   <div class="bar">
+    <label><input type="checkbox" id="focusMode" /> Ẩn khung chat</label>
     <label><input type="checkbox" id="contMode" /> Trò chuyện liên tục</label>
     <span><span class="dot" id="brainDot"></span> bộ não</span>
     <a id="clearBtn">Xoá trí nhớ &amp; lịch sử</a>
@@ -153,13 +164,52 @@ function recenterEyes() {
   eyes.forEach(e => { e.style.setProperty("--ex", "0px"); e.style.setProperty("--ey", "0px"); });
 }
 // pointermove bao cả chuột (desktop) lẫn ngón tay đang chạm (mobile)
+let lastPointer = 0;
 document.addEventListener("pointermove", (e) => {
+  lastPointer = Date.now();
   lookAt(e.clientX, e.clientY);
   if (e.pointerType === "touch") { clearTimeout(eyeReset); eyeReset = setTimeout(recenterEyes, 1500); }
 });
 document.addEventListener("pointerup", (e) => { if (e.pointerType === "touch") setTimeout(recenterEyes, 600); });
 document.addEventListener("pointercancel", recenterEyes);
 document.addEventListener("mouseleave", recenterEyes);
+
+// --- Mắt tự đảo nhìn xung quanh khi rảnh (sống động, nhất là lúc ẩn chat) ---
+setInterval(() => {
+  if (typeof listening !== "undefined" && listening) return;   // đang nghe -> mắt nheo, để yên
+  if (Date.now() - lastPointer < 2500) return;                 // vừa rê chuột/chạm -> để pointer điều khiển
+  const ex = (Math.random() * 2 - 1) * 7, ey = (Math.random() * 2 - 1) * 5;
+  eyes.forEach(e => { e.style.setProperty("--ex", ex.toFixed(1) + "px"); e.style.setProperty("--ey", ey.toFixed(1) + "px"); });
+}, 1900);
+
+// --- Chớp mắt định kỳ ---
+function blink() { face.classList.add("blink"); setTimeout(() => face.classList.remove("blink"), 140); }
+(function loopBlink() { setTimeout(() => { if (!(typeof listening !== "undefined" && listening)) blink(); loopBlink(); }, 3500 + Math.random() * 4000); })();
+
+// --- Biểu cảm theo nội dung hội thoại (đổi màu khuôn mặt) ---
+const MOODS = {
+  neutral:   "linear-gradient(145deg, var(--accent), var(--accent2))",
+  happy:     "linear-gradient(145deg, #36d399, #4cc9f0)",
+  love:      "linear-gradient(145deg, #ff6db0, #ff9e6d)",
+  surprised: "linear-gradient(145deg, #ffd36e, #ff8f6d)",
+  sad:       "linear-gradient(145deg, #5566cc, #3a4a7a)",
+  thinking:  "linear-gradient(145deg, #6a6f9a, #46506f)",
+};
+function setMood(m) { face.style.background = MOODS[m] || MOODS.neutral; }
+function moodFromText(t) {
+  t = (t || "").toLowerCase();
+  if (/(yêu|thương|đáng yêu|dễ thương|thích cậu|nhớ cậu|tim|trái tim)/.test(t)) return "love";
+  if (/(buồn|tiếc|xin lỗi|huhu|tệ quá|đáng tiếc|thất vọng|hic)/.test(t)) return "sad";
+  if (/(ồ|ôi|wow|trời ơi|thật sao|thật á|ngạc nhiên|bất ngờ|gì cơ|hả|ơ)/.test(t)) return "surprised";
+  if (/(haha|hihi|vui|tuyệt|hay quá|thích|tốt quá|yay|tuyệt vời|hào hứng|thú vị|hoan hô|😄|😁)/.test(t)) return "happy";
+  return "neutral";
+}
+
+// --- Bật/tắt khung chat (chế độ tập trung) ---
+const LS_FOCUS = "min_focus";
+function applyFocus(on) { document.body.classList.toggle("focus", on); $("focusMode").checked = on; localStorage.setItem(LS_FOCUS, on ? "1" : "0"); }
+$("focusMode").onchange = () => applyFocus($("focusMode").checked);
+applyFocus(localStorage.getItem(LS_FOCUS) === "1");
 
 // --- Đọc to (TTS): server sinh giọng tiếng Việt (edge-tts), KHÔNG phụ thuộc trình duyệt ---
 // Mobile chặn tự phát audio: dùng MỘT phần tử audio cố định, "mở khoá" bằng cú chạm đầu tiên.
@@ -244,6 +294,7 @@ function send(text) {
   addBubble("user", text);
   history.push({ role: "user", content: text }); save();
   const thinking = addBubble("min", "…");
+  setMood("thinking");
   deliver(text, null, thinking);
 }
 
@@ -255,7 +306,7 @@ async function deliver(text, imageB64, thinking) {
     });
     const data = await res.json();
     $("brainDot").classList.toggle("on", res.ok);
-    if (!res.ok) { thinking.textContent = "Lỗi: " + (data.error || res.status); return; }
+    if (!res.ok) { thinking.textContent = "Lỗi: " + (data.error || res.status); setMood("neutral"); return; }
 
     // Min muốn nhìn nhưng chưa có ảnh -> chụp rồi gửi lại (1 lần).
     if (data.need_image && !imageB64) {
@@ -279,10 +330,12 @@ async function deliver(text, imageB64, thinking) {
     history.push({ role: "assistant", content: data.reply || "" });
     if (Array.isArray(data.memories)) memories = data.memories;
     save();
+    setMood(moodFromText(data.reply));
     speak(data.reply);
   } catch (e) {
     $("brainDot").classList.remove("on");
     thinking.textContent = "Không kết nối được bộ não: " + e.message;
+    setMood("neutral");
   }
 }
 
