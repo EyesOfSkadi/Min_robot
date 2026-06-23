@@ -20,20 +20,24 @@
   header h1 { margin: 0; font-size: 28px; letter-spacing: .5px; }
   header p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
   .face {
-    width: 84px; height: 84px; margin: 14px auto 0; border-radius: 24px;
-    background: linear-gradient(145deg, var(--accent), var(--accent2));
-    display: flex; align-items: center; justify-content: center; gap: 12px;
-    box-shadow: 0 8px 30px rgba(124,92,255,.4);
-    transition: transform .2s, background .5s ease, width .3s, height .3s, gap .3s;
+    width: 96px; height: 84px; margin: 14px auto 0; border-radius: 22px;
+    background: #05060d;                                   /* màn hình đen như Vector */
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    box-shadow: 0 8px 34px rgba(41,224,255,.28), inset 0 0 22px rgba(0,0,0,.7);
+    transition: transform .2s, width .3s, height .3s, gap .3s;
   }
   .face .eye {
-    width: 16px; height: 26px; background: #0b1020; border-radius: 8px;
+    width: 20px; height: 30px; border-radius: 6px;
+    background: var(--eyeColor, #29e0ff);                  /* mắt phát sáng cyan */
+    box-shadow: 0 0 12px 1px var(--eyeColor, #29e0ff),
+                inset 0 4px 5px rgba(255,255,255,.5), inset 0 -4px 6px rgba(0,0,0,.25);
     transform: translate(var(--ex, 0px), var(--ey, 0px));
-    transition: height .12s, width .2s, transform .12s ease-out;
+    transition: height .12s, width .2s, transform .12s ease-out, background .4s, box-shadow .4s, border-radius .25s;
   }
   .face.speaking { animation: bob 1s ease-in-out infinite; }
-  .face.listening .eye { height: 10px !important; }
-  .face.blink .eye { height: 4px !important; }
+  .face.listening .eye { height: 8px !important; }
+  .face.blink .eye { height: 3px !important; }
+  .face.wink .eye:last-child { height: 3px !important; }   /* nháy 1 mắt (tinh nghịch) */
   @keyframes bob { 50% { transform: translateY(-5px); } }
 
   /* Lớp bọc dành riêng cho CỬ ĐỘNG (gật/lắc/nảy) — tách khỏi nhún-nói & mắt-nhìn */
@@ -57,9 +61,10 @@
   body.focus header { padding-top: 4vh; }
   body.focus header p, body.focus #chat, body.focus #textForm { display: none; }
   body.focus main { justify-content: flex-end; }
-  body.focus .face { width: 220px; height: 220px; border-radius: 56px; gap: 34px; margin-top: 8vh; }
-  body.focus .face .eye { width: 44px; height: 70px; border-radius: 22px; }
-  body.focus .face.listening .eye { height: 28px !important; }
+  body.focus .face { width: 260px; height: 220px; border-radius: 48px; gap: 26px; margin-top: 8vh; }
+  body.focus .face .eye { width: 54px; height: 84px; border-radius: 16px; }
+  body.focus .face.listening .eye { height: 22px !important; }
+  body.focus .face.blink .eye, body.focus .face.wink .eye:last-child { height: 8px !important; }
   main {
     width: 100%; max-width: 720px; flex: 1; display: flex; flex-direction: column;
     padding: 16px; gap: 12px;
@@ -199,18 +204,24 @@ setInterval(() => {
   eyes.forEach(e => { e.style.setProperty("--ex", ex.toFixed(1) + "px"); e.style.setProperty("--ey", ey.toFixed(1) + "px"); });
 }, 1900);
 
-// --- Chớp mắt định kỳ ---
-function blink() { face.classList.add("blink"); setTimeout(() => face.classList.remove("blink"), 140); }
-(function loopBlink() { setTimeout(() => { if (!(typeof listening !== "undefined" && listening)) blink(); loopBlink(); }, 3500 + Math.random() * 4000); })();
+// --- Chớp mắt + nháy một mắt (tinh nghịch) ---
+function blink() { face.classList.add("blink"); setTimeout(() => face.classList.remove("blink"), 150); }
+function wink() { face.classList.add("wink"); setTimeout(() => face.classList.remove("wink"), 220); }
+(function loopBlink() {
+  setTimeout(() => {
+    if (!(typeof listening !== "undefined" && listening)) (Math.random() < 0.25 ? wink() : blink());
+    loopBlink();
+  }, 3500 + Math.random() * 4000);
+})();
 
-// --- Biểu cảm theo nội dung hội thoại (đổi màu khuôn mặt) ---
-const MOODS = {
-  neutral:   "linear-gradient(145deg, var(--accent), var(--accent2))",
-  happy:     "linear-gradient(145deg, #36d399, #4cc9f0)",
-  love:      "linear-gradient(145deg, #ff6db0, #ff9e6d)",
-  surprised: "linear-gradient(145deg, #ffd36e, #ff8f6d)",
-  sad:       "linear-gradient(145deg, #5566cc, #3a4a7a)",
-  thinking:  "linear-gradient(145deg, #6a6f9a, #46506f)",
+// --- Biểu cảm theo nội dung: đổi MÀU MẮT (như Vector thật) ---
+const EYE_COLORS = {
+  neutral:   "#29e0ff",   // cyan đặc trưng Vector
+  happy:     "#3df0c4",   // xanh ngọc
+  love:      "#ff77c8",   // hồng
+  surprised: "#5ad1ff",
+  sad:       "#6f86d6",   // xanh trầm
+  thinking:  "#7c87b2",   // xám mờ
 };
 const faceWrap = $("faceWrap");
 function gesture(name) {                          // chạy cử động một lần (gật/lắc/nảy)
@@ -222,11 +233,11 @@ faceWrap.addEventListener("animationend", () => faceWrap.classList.remove("nod",
 
 const MOOD_KEYS = ["mood-happy", "mood-love", "mood-surprised", "mood-sad", "mood-thinking", "mood-neutral"];
 function setMood(m) {
-  if (!MOODS[m]) m = "neutral";
-  face.style.background = MOODS[m];
+  if (!EYE_COLORS[m]) m = "neutral";
+  face.style.setProperty("--eyeColor", EYE_COLORS[m]);    // đổi màu mắt theo cảm xúc
   face.classList.remove(...MOOD_KEYS);
   face.classList.add("mood-" + m);
-  if (m === "happy" || m === "love") gesture("nod");      // vui/yêu -> gật đầu
+  if (m === "happy" || m === "love") { gesture("nod"); setTimeout(wink, 380); }  // vui/yêu -> gật + nháy mắt
   else if (m === "surprised") gesture("pop");             // ngạc nhiên -> nảy lên
   else if (m === "sad") gesture("shake");                 // buồn -> lắc đầu nhẹ
 }
