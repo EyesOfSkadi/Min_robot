@@ -32,9 +32,26 @@
     transition: height .12s, width .2s, transform .12s ease-out;
   }
   .face.speaking { animation: bob 1s ease-in-out infinite; }
-  .face.listening .eye { height: 10px; }
+  .face.listening .eye { height: 10px !important; }
   .face.blink .eye { height: 4px !important; }
   @keyframes bob { 50% { transform: translateY(-5px); } }
+
+  /* Lớp bọc dành riêng cho CỬ ĐỘNG (gật/lắc/nảy) — tách khỏi nhún-nói & mắt-nhìn */
+  .faceWrap { display: flex; justify-content: center; }
+  .faceWrap.nod   { animation: nod .65s ease; }
+  .faceWrap.shake { animation: shake .55s ease; }
+  .faceWrap.pop   { animation: pop .5s ease; }
+  @keyframes nod   { 0%,100% { transform: translateY(0); } 30% { transform: translateY(8px); } 65% { transform: translateY(0); } }
+  @keyframes shake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-8px); } 55% { transform: translateX(8px); } 80% { transform: translateX(-4px); } }
+  @keyframes pop   { 0% { transform: scale(1); } 40% { transform: scale(1.13); } 100% { transform: scale(1); } }
+
+  /* Hình dạng mắt theo cảm xúc (rõ hơn màu sắc) */
+  .face.mood-happy .eye, .face.mood-love .eye { height: 12px; border-radius: 14px 14px 4px 4px; }   /* cười: mắt cong ◠ */
+  .face.mood-surprised .eye { width: 22px; height: 28px; border-radius: 50%; }                       /* ngạc nhiên: mắt tròn to */
+  .face.mood-sad .eye { height: 13px; border-radius: 4px 4px 11px 11px; }                            /* buồn: mắt rủ xuống */
+  body.focus .face.mood-happy .eye, body.focus .face.mood-love .eye { height: 34px; border-radius: 36px 36px 10px 10px; }
+  body.focus .face.mood-surprised .eye { width: 58px; height: 76px; border-radius: 50%; }
+  body.focus .face.mood-sad .eye { height: 36px; border-radius: 10px 10px 30px 30px; }
 
   /* Chế độ tập trung: ẩn khung chat, chỉ còn khuôn mặt Min to ở giữa */
   body.focus header { padding-top: 4vh; }
@@ -42,7 +59,7 @@
   body.focus main { justify-content: flex-end; }
   body.focus .face { width: 220px; height: 220px; border-radius: 56px; gap: 34px; margin-top: 8vh; }
   body.focus .face .eye { width: 44px; height: 70px; border-radius: 22px; }
-  body.focus .face.listening .eye { height: 28px; }
+  body.focus .face.listening .eye { height: 28px !important; }
   main {
     width: 100%; max-width: 720px; flex: 1; display: flex; flex-direction: column;
     padding: 16px; gap: 12px;
@@ -88,7 +105,7 @@
 </head>
 <body>
   <header>
-    <div class="face" id="face"><div class="eye"></div><div class="eye"></div></div>
+    <div class="faceWrap" id="faceWrap"><div class="face" id="face"><div class="eye"></div><div class="eye"></div></div></div>
     <h1>Min</h1>
     <p>Người bạn AI nói tiếng Việt của cậu</p>
   </header>
@@ -195,7 +212,24 @@ const MOODS = {
   sad:       "linear-gradient(145deg, #5566cc, #3a4a7a)",
   thinking:  "linear-gradient(145deg, #6a6f9a, #46506f)",
 };
-function setMood(m) { face.style.background = MOODS[m] || MOODS.neutral; }
+const faceWrap = $("faceWrap");
+function gesture(name) {                          // chạy cử động một lần (gật/lắc/nảy)
+  faceWrap.classList.remove("nod", "shake", "pop");
+  void faceWrap.offsetWidth;                      // ép reflow để animation lặp lại được
+  faceWrap.classList.add(name);
+}
+faceWrap.addEventListener("animationend", () => faceWrap.classList.remove("nod", "shake", "pop"));
+
+const MOOD_KEYS = ["mood-happy", "mood-love", "mood-surprised", "mood-sad", "mood-thinking", "mood-neutral"];
+function setMood(m) {
+  if (!MOODS[m]) m = "neutral";
+  face.style.background = MOODS[m];
+  face.classList.remove(...MOOD_KEYS);
+  face.classList.add("mood-" + m);
+  if (m === "happy" || m === "love") gesture("nod");      // vui/yêu -> gật đầu
+  else if (m === "surprised") gesture("pop");             // ngạc nhiên -> nảy lên
+  else if (m === "sad") gesture("shake");                 // buồn -> lắc đầu nhẹ
+}
 function moodFromText(t) {
   t = (t || "").toLowerCase();
   if (/(yêu|thương|đáng yêu|dễ thương|thích cậu|nhớ cậu|tim|trái tim)/.test(t)) return "love";
