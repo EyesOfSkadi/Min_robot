@@ -289,8 +289,8 @@ async function deliver(text, imageB64, thinking) {
 // --- Nghe (STT) bằng Web Speech API ---
 // iOS Safari: đối tượng SpeechRecognition chỉ chạy được 1 lần -> TẠO MỚI cho mỗi lần nghe.
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let rec = null, listening = false;
-function micIdle() { listening = false; talk.classList.remove("rec"); face.classList.remove("listening"); talk.textContent = "🎤 Nhấn để nói"; }
+let rec = null, listening = false, starting = false, startWatch = null;
+function micIdle() { talk.classList.remove("rec"); face.classList.remove("listening"); talk.textContent = "🎤 Nhấn để nói"; }
 function micRec() { talk.classList.add("rec"); face.classList.add("listening"); talk.textContent = "⏺ Đang nghe… (bấm để dừng)"; }
 if (!SR) {
   talk.disabled = true; talk.textContent = "Trình duyệt không hỗ trợ giọng nói";
@@ -299,22 +299,34 @@ if (!SR) {
 function buildRec() {
   const r = new SR();
   r.lang = "vi-VN"; r.interimResults = false; r.maxAlternatives = 1;
+  // onstart: mic ĐÃ thật sự mở -> chốt trạng thái (tránh nút bị kẹt "đang nghe").
+  r.onstart = () => { clearTimeout(startWatch); starting = false; listening = true; micRec(); };
   r.onresult = (e) => { const t = e.results[0][0].transcript; if (t) send(t); };
-  r.onend = micIdle;
-  r.onerror = (e) => { micIdle(); if (e.error !== "no-speech" && e.error !== "aborted") addBubble("sys", "Lỗi micro: " + e.error); };
+  r.onend = () => { clearTimeout(startWatch); starting = false; listening = false; micIdle(); };
+  r.onerror = (e) => {
+    clearTimeout(startWatch); starting = false; listening = false; micIdle();
+    if (e.error !== "no-speech" && e.error !== "aborted") addBubble("sys", "Lỗi micro: " + e.error);
+  };
   return r;
 }
 function startListen() {
-  if (!SR || listening) return;
-  stopSpeaking();                 // tắt tiếng đang phát để mic không bắt nhầm & giải phóng audio (iOS)
+  if (!SR || listening || starting) return;
+  stopSpeaking();                                   // tắt tiếng đang phát
+  try { player.removeAttribute("src"); player.load(); } catch (_) {}  // giải phóng audio session (iOS)
+  starting = true; micRec();                        // phản hồi tức thì
   try {
     if (rec) { try { rec.abort(); } catch (_) {} }
-    rec = buildRec();             // mỗi phiên một đối tượng mới -> iOS nghe lại được
-    rec.start(); listening = true; micRec();
-  } catch (_) { micIdle(); }
+    rec = buildRec();                               // mỗi phiên một đối tượng mới -> iOS nghe lại được
+    rec.start();
+  } catch (_) { starting = false; micIdle(); return; }
+  // Watchdog: ~1.3s mà mic chưa thật sự mở (onstart chưa chạy) -> đưa nút về sẵn sàng để bấm lại.
+  clearTimeout(startWatch);
+  startWatch = setTimeout(() => {
+    if (!listening) { try { rec && rec.abort(); } catch (_) {} starting = false; micIdle(); }
+  }, 1300);
 }
-function stopListen() { try { rec && rec.stop(); } catch (_) {} }
-talk.onclick = () => { listening ? stopListen() : startListen(); };
+function stopListen() { clearTimeout(startWatch); starting = false; try { rec && rec.stop(); } catch (_) {} }
+talk.onclick = () => { (listening || starting) ? stopListen() : startListen(); };
 
 $("textForm").onsubmit = (e) => { e.preventDefault(); const v = $("textInput").value; $("textInput").value = ""; send(v); };
 $("clearBtn").onclick = () => {
